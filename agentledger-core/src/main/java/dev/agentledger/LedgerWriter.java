@@ -9,10 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +28,9 @@ public final class LedgerWriter {
   private final ObjectMapper mapper =
       new ObjectMapper().registerModule(new JavaTimeModule()).disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
+  private final Path headPath;
+  private final String signingKey;
+
   private long seq;
   private String lastHash = GENESIS;
 
@@ -39,9 +39,22 @@ public final class LedgerWriter {
   }
 
   public LedgerWriter(Path path, String runId) {
+    this(path, runId, null, null);
+  }
+
+  public LedgerWriter(Path path, Path headPath, String signingKey) {
+    this(path, "run-" + UUID.randomUUID(), headPath, signingKey);
+  }
+
+  public LedgerWriter(Path path, String runId, Path headPath, String signingKey) {
     this.path = path;
     this.runId = runId;
+    this.headPath = headPath;
+    this.signingKey = signingKey;
     resume();
+    if (headPath != null && seq > 0) {
+      HeadAnchor.of(seq, lastHash, signingKey).write(headPath);
+    }
   }
 
   private void resume() {
@@ -82,6 +95,9 @@ public final class LedgerWriter {
     }
     seq = signed.seq();
     lastHash = signed.hash();
+    if (headPath != null) {
+      HeadAnchor.of(seq, lastHash, signingKey).write(headPath);
+    }
     return signed;
   }
 
@@ -91,25 +107,11 @@ public final class LedgerWriter {
   }
 
   String hashOf(LedgerEntry entry) {
-    try {
-      byte[] canonical = mapper.writeValueAsBytes(entry.canonical());
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      return HexFormat.of().formatHex(digest.digest(canonical));
-    } catch (IOException e) {
-      throw new UncheckedIOException("cannot canonicalize entry", e);
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 unavailable", e);
-    }
+    return LedgerHash.of(entry);
   }
 
   public static String hashPayload(String payload) {
-    if (payload == null) return null;
-    try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      return HexFormat.of().formatHex(digest.digest(payload.getBytes(StandardCharsets.UTF_8)));
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 unavailable", e);
-    }
+    return LedgerHash.ofPayload(payload);
   }
 
   public Path path() {

@@ -20,6 +20,8 @@ you already run.
 - **Failures count.** A tool call that threw is recorded with `status: FAILED` and the
   exception type — the interesting part of an agent's day.
 - **Crash-safe sequence.** Reopening the file resumes the sequence and the chain.
+- **Truncation counts too.** A hash chain alone cannot notice that the last entry was
+  deleted; a signed head anchor can, because the expected tip lives outside the file.
 
 ## Quick start
 
@@ -40,10 +42,12 @@ ledger.decision("approve_quote", Map.of("confidence", "0.87", "policy", "pricing
 ledger.approval("refund_1200", true, "human:pm");
 ```
 
-```
-$ java -jar demo/target/agentledger-demo-*.jar --agentledger.path=/tmp/ledger.jsonl
-ledger: /tmp/ledger.jsonl
-verify: 4 entries, hash chain intact
+```sh
+$ java -jar demo/target/agentledger-demo-*.jar
+ledger : ./demo-ledger.jsonl
+verify : 4 entries, hash chain intact, head matches
+edited : 4 entries, 1 problem(s): entry 2: hash mismatch (content was modified)
+cut    : 3 entries, 1 problem(s): ledger tip does not match the head anchor (entries were removed or replaced)
 ```
 
 One entry:
@@ -56,22 +60,43 @@ One entry:
  "prevHash":"08c82af5…","hash":"e459a462…"}
 ```
 
+## Command line
+
+```sh
+# re-derive every hash, check the chain and the head anchor
+java -jar agentledger-cli/target/agentledger.jar verify demo-ledger.jsonl \
+     --head demo-ledger.head --key-env AGENTLEDGER_KEY
+agentledger exited 0   # 1 = tampered, 2 = usage error
+
+# replay the recorded actions
+java -jar agentledger-cli/target/agentledger.jar replay demo-ledger.jsonl
+#1   2026-11-20T05:56:33Z TOOL_CALL quote_price   OK      0ms
+#2   2026-11-20T05:56:34Z TOOL_CALL quote_price   FAILED  0ms
+#3   2026-11-20T05:56:34Z DECISION  approve_quote OK      0ms
+#4   2026-11-20T05:56:34Z APPROVAL  refund_1200   OK      0ms
+```
+
 ## Modules
 
 | module | what it is |
 | --- | --- |
 | `agentledger-core` | entries, writer, verifier, hashing. No Spring, no I/O beyond append |
 | `agentledger-spring` | `@AgentAction`, auto-configuration, `AgentLedger` facade |
-| `demo` | a 20-line Spring Boot app that records a success, a failure, a decision, an approval |
+| `agentledger-cli` | `verify` and `replay` over a ledger file, no Spring |
+| `demo` | a 20-line Spring Boot app that records a success, a failure, a decision, an approval, then shows an edited and a truncated copy failing verification |
 
 ## Status
 
-`0.1.0-SNAPSHOT`, 5 tests, built and run on JDK 21. This is a first slice on purpose:
+`0.1.0-SNAPSHOT`, 12 tests, built and run on JDK 21.
 
-- **Not yet:** signed head (so tail truncation needs an external anchor), replay CLI,
-  OpenTelemetry export, MCP-aware recording, storage backends other than local files.
-- **Known gap:** the chain detects edits, reordering and middle deletion. Removing the
-  *last* entry cannot be detected from the file alone; a signed head is the fix.
+What is covered: hash chaining (edit / reorder / middle deletion), payload hashing,
+sequence resume after reopen, unsigned and HMAC-signed head anchors, CLI exit codes.
+
+- **Not yet:** OpenTelemetry export, MCP-aware recording, storage backends other than
+  local files, key rotation.
+- **Honest limit:** an attacker who can rewrite both the ledger *and* the head file wins;
+  the HMAC key must live somewhere the ledger writer cannot be tricked into using it
+  (env var, KMS, separate process).
 
 ## Build
 

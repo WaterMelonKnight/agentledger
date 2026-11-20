@@ -11,6 +11,12 @@ public class AgentLedgerProperties {
   /** Optional fixed run id; a random one is used when absent. */
   private String runId;
 
+  /** Optional head anchor file; enables truncation detection. */
+  private String headPath;
+
+  /** Optional HMAC key for the head anchor. Prefer an environment variable. */
+  private String key;
+
   public String getPath() {
     return path;
   }
@@ -25,5 +31,21 @@ public class AgentLedgerProperties {
 
   public void setRunId(String runId) {
     this.runId = runId;
+  }
+
+  public String getHeadPath() {
+    return headPath;
+  }
+
+  public void setHeadPath(String headPath) {
+    this.headPath = headPath;
+  }
+
+  public String getKey() {
+    return key;
+  }
+
+  public void setKey(String key) {
+    this.key = key;
   }
 }

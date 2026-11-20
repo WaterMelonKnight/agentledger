@@ -17,9 +17,11 @@ public class AgentLedgerAutoConfiguration {
   @ConditionalOnMissingBean
   public LedgerWriter agentLedgerWriter(AgentLedgerProperties properties) {
     Path path = Path.of(properties.getPath());
-    return properties.getRunId() == null
-        ? new LedgerWriter(path)
-        : new LedgerWriter(path, properties.getRunId());
+    Path head = properties.getHeadPath() == null ? null : Path.of(properties.getHeadPath());
+    String runId = properties.getRunId() == null
+        ? "run-" + java.util.UUID.randomUUID()
+        : properties.getRunId();
+    return new LedgerWriter(path, runId, head, properties.getKey());
   }
 
   @Bean

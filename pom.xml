@@ -21,6 +21,7 @@
   <modules>
     <module>agentledger-core</module>
     <module>agentledger-spring</module>
+    <module>agentledger-cli</module>
     <module>demo</module>
   </modules>
 

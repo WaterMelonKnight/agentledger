@@ -47,7 +47,7 @@ class LedgerTest {
   }
 
   @Test
-  void removingTheLastEntryIsDetectedAsTruncation() throws Exception {
+  void truncationIsInvisibleWithoutAHeadAnchor() throws Exception {
     LedgerWriter writer = new LedgerWriter(ledger(), "run-3");
     writer.record(LedgerEntry.Kind.DECISION, "step-1", LedgerEntry.Status.OK);
     writer.record(LedgerEntry.Kind.DECISION, "step-2", LedgerEntry.Status.OK);
@@ -55,11 +55,35 @@ class LedgerTest {
     List<String> lines = Files.readAllLines(ledger());
     Files.write(ledger(), List.of(lines.get(0)));
 
-    // Prefix truncation is invisible to a chain check, so the writer must expose
-    // the last known hash externally (signed head) for this to be caught.
     LedgerVerifier.Result result = new LedgerVerifier().verify(ledger());
+    assertThat(result.intact()).isTrue();
     assertThat(result.entries()).isEqualTo(1);
-    assertThat(result.lastSeq()).isEqualTo(1);
+  }
+
+  @Test
+  void signedHeadDetectsTruncation() throws Exception {
+    Path head = dir.resolve("ledger.head");
+    LedgerWriter writer = new LedgerWriter(ledger(), "run-5", head, "demo-key");
+    writer.record(LedgerEntry.Kind.DECISION, "step-1", LedgerEntry.Status.OK);
+    writer.record(LedgerEntry.Kind.DECISION, "step-2", LedgerEntry.Status.OK);
+
+    List<String> lines = Files.readAllLines(ledger());
+    Files.write(ledger(), List.of(lines.get(0)));
+
+    LedgerVerifier.Result result = new LedgerVerifier().verify(ledger(), head, "demo-key");
+    assertThat(result.intact()).isFalse();
+    assertThat(result.problems()).anyMatch(p -> p.contains("head anchor"));
+  }
+
+  @Test
+  void headSignedWithAnotherKeyIsRejected() {
+    Path head = dir.resolve("ledger2.head");
+    LedgerWriter writer = new LedgerWriter(ledger(), "run-6", head, "right-key");
+    writer.record(LedgerEntry.Kind.DECISION, "step-1", LedgerEntry.Status.OK);
+
+    LedgerVerifier.Result result = new LedgerVerifier().verify(ledger(), head, "wrong-key");
+    assertThat(result.intact()).isFalse();
+    assertThat(result.problems()).anyMatch(p -> p.contains("head anchor"));
   }
 
   @Test

@@ -18,17 +18,26 @@ public final class LedgerVerifier {
 
   private final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
-  public record Result(boolean intact, int entries, long lastSeq, List<String> problems) {
+  public record Result(
+      boolean intact, int entries, long lastSeq, boolean headChecked, List<String> problems) {
     public String summary() {
-      if (intact) return entries + " entries, hash chain intact";
+      String head = headChecked ? ", head matches" : "";
+      if (intact) return entries + " entries, hash chain intact" + head;
       return entries + " entries, " + problems.size() + " problem(s): " + String.join("; ", problems);
     }
   }
 
   public Result verify(Path path) {
+    return verify(path, null, null);
+  }
+
+  /**
+   * @param headPath anchor file; when present the file's tip must match it
+   * @param key HMAC key used to validate the anchor; null accepts an unsigned anchor
+   */
+  public Result verify(Path path, Path headPath, String key) {
     List<String> problems = new ArrayList<>();
     List<LedgerEntry> entries = read(path, problems);
-    LedgerWriter writer = new LedgerWriter(Path.of(path + ".verifier-scratch"));
     String expectedPrev = LedgerWriter.GENESIS;
     long expectedSeq = 1;
     for (LedgerEntry entry : entries) {
@@ -38,15 +47,29 @@ public final class LedgerVerifier {
       if (!expectedPrev.equals(entry.prevHash())) {
         problems.add("entry " + entry.seq() + ": prevHash does not match the previous entry");
       }
-      String recomputed = writer.hashOf(entry);
+      String recomputed = LedgerHash.of(entry);
       if (!recomputed.equals(entry.hash())) {
         problems.add("entry " + entry.seq() + ": hash mismatch (content was modified)");
       }
       expectedPrev = entry.hash();
       expectedSeq = entry.seq() + 1;
     }
+    boolean headChecked = false;
+    if (headPath != null) {
+      HeadAnchor anchor = HeadAnchor.read(headPath);
+      if (anchor == null) {
+        problems.add("head anchor missing at " + headPath);
+      } else {
+        headChecked = true;
+        LedgerEntry last = entries.isEmpty() ? null : entries.get(entries.size() - 1);
+        if (!anchor.matches(last, key)) {
+          problems.add("ledger tip does not match the head anchor (entries were removed or replaced)");
+        }
+      }
+    }
     return new Result(problems.isEmpty(), entries.size(),
-        entries.isEmpty() ? 0 : entries.get(entries.size() - 1).seq(), List.copyOf(problems));
+        entries.isEmpty() ? 0 : entries.get(entries.size() - 1).seq(), headChecked,
+        List.copyOf(problems));
   }
 
   private List<LedgerEntry> read(Path path, List<String> problems) {
