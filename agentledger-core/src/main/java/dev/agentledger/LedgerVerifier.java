@@ -72,6 +72,12 @@ public final class LedgerVerifier {
         List.copyOf(problems));
   }
 
+  /** Reads the ledger without judging it; problems with malformed lines are dropped. */
+  public static List<LedgerEntry> entries(Path path) {
+    List<String> ignored = new ArrayList<>();
+    return new LedgerVerifier().read(path, ignored);
+  }
+
   private List<LedgerEntry> read(Path path, List<String> problems) {
     List<LedgerEntry> entries = new ArrayList<>();
     if (!Files.exists(path)) return entries;

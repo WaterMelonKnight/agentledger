@@ -85,6 +85,47 @@ class MainTest {
   }
 
   @Test
+  void rootAndProveAndCheckRoundTrip() throws Exception {
+    Path ledger = dir.resolve("merkle.jsonl");
+    LedgerWriter writer = new LedgerWriter(ledger, "run-5");
+    for (int i = 0; i < 5; i++) {
+      writer.record(LedgerEntry.Kind.TOOL_CALL, "tool-" + i, LedgerEntry.Status.OK);
+    }
+    Path anchor = dir.resolve("anchor.json");
+    Path proof = dir.resolve("proof.json");
+
+    assertThat(cli("root", ledger.toString(), "--out", anchor.toString()).code()).isZero();
+    assertThat(Files.readString(anchor)).contains("\"entries\":5");
+
+    Run proved = cli("prove", ledger.toString(), "--index", "2", "--out", proof.toString());
+    assertThat(proved.code()).isZero();
+    assertThat(Files.readString(proof)).contains("\"index\":2");
+
+    assertThat(cli("check", ledger.toString(), "--proof", proof.toString()).code()).isZero();
+    assertThat(cli("check", ledger.toString(), "--proof", proof.toString()).out()).contains("OK");
+  }
+
+  @Test
+  void checkRejectsAProofFromAnotherLedger() throws Exception {
+    Path first = dir.resolve("a.jsonl");
+    Path second = dir.resolve("b.jsonl");
+    LedgerWriter a = new LedgerWriter(first, "run-6");
+    a.record(LedgerEntry.Kind.TOOL_CALL, "a", LedgerEntry.Status.OK);
+    a.record(LedgerEntry.Kind.TOOL_CALL, "b", LedgerEntry.Status.OK);
+    LedgerWriter b = new LedgerWriter(second, "run-7");
+    b.record(LedgerEntry.Kind.TOOL_CALL, "x", LedgerEntry.Status.OK);
+    b.record(LedgerEntry.Kind.TOOL_CALL, "y", LedgerEntry.Status.OK);
+
+    Path proof = dir.resolve("p.json");
+    assertThat(cli("prove", first.toString(), "--index", "0", "--out", proof.toString()).code())
+        .isZero();
+
+    Run run = cli("check", second.toString(), "--proof", proof.toString());
+    assertThat(run.code()).isEqualTo(Main.FAILED);
+    assertThat(run.out()).contains("FAIL");
+  }
+
+  @Test
   void missingArgumentsAreAUsageError() {
     Run run = cli("verify");
     assertThat(run.code()).isEqualTo(Main.USAGE);

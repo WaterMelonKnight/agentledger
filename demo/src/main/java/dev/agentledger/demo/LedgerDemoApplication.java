@@ -5,6 +5,7 @@ import dev.agentledger.spring.AgentLedger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.springframework.boot.CommandLineRunner;
@@ -39,9 +40,9 @@ public class LedgerDemoApplication {
 
       Path tampered = Path.of("tampered-ledger.jsonl");
       List<String> lines = Files.readAllLines(ledgerPath, StandardCharsets.UTF_8);
-      Files.write(tampered, List.of(lines.get(0),
-          lines.get(1).replace("\"quote_price\"", "\"refund_everything\""),
-          lines.get(2), lines.get(3)));
+      List<String> edited = new ArrayList<>(lines);
+      edited.set(1, edited.get(1).replace("\"quote_price\"", "\"refund_everything\""));
+      Files.write(tampered, edited);
       System.out.println("edited : " + new LedgerVerifier().verify(tampered, headPath, "demo-key").summary());
 
       Path truncated = Path.of("truncated-ledger.jsonl");

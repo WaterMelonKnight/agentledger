@@ -22,6 +22,8 @@ you already run.
 - **Crash-safe sequence.** Reopening the file resumes the sequence and the chain.
 - **Truncation counts too.** A hash chain alone cannot notice that the last entry was
   deleted; a signed head anchor can, because the expected tip lives outside the file.
+- **One root proves everything.** A Merkle root over all entries plus an inclusion proof
+  (log2(n) hashes) lets an auditor verify a single action without holding the ledger.
 
 ## Quick start
 
@@ -76,24 +78,46 @@ java -jar agentledger-cli/target/agentledger.jar replay demo-ledger.jsonl
 #4   2026-11-20T05:56:34Z APPROVAL  refund_1200   OK      0ms
 ```
 
+## Merkle root and inclusion proofs
+
+```sh
+# 32 bytes that commit to the whole history
+$ java -jar agentledger-cli/target/agentledger.jar root demo-ledger.jsonl --out anchor.json
+root    2b6f8d1d854e4919bf2d2d108c854b04a33aad47114ed3d594298e84817fc1f8
+entries 4
+
+# prove one entry is in that history (3 hashes for 8 entries, 20 for a million)
+$ java -jar agentledger-cli/target/agentledger.jar prove demo-ledger.jsonl --index 2 --out proof.json
+{"index":2,"size":4,"root":"2b6f8d…","path":[{"hash":"4d2b61…","left":false}, …]}
+
+$ java -jar agentledger-cli/target/agentledger.jar check demo-ledger.jsonl --proof proof.json
+OK   entry 2 is included in root 2b6f8d1d…
+```
+
+Where to put the root matters more than how to compute it. Anything the ledger writer
+cannot rewrite works: a Git commit, an S3 object with Object Lock, a ticket in another
+system, or a chain's `OP_RETURN` as a public timestamp. The ledger deliberately does not
+ship a chain integration — anchoring is a policy decision, not a library one.
+
 ## Modules
 
 | module | what it is |
 | --- | --- |
 | `agentledger-core` | entries, writer, verifier, hashing. No Spring, no I/O beyond append |
 | `agentledger-spring` | `@AgentAction`, auto-configuration, `AgentLedger` facade |
-| `agentledger-cli` | `verify` and `replay` over a ledger file, no Spring |
+| `agentledger-cli` | `verify`, `replay`, `root`, `prove`, `check` — no Spring |
 | `demo` | a 20-line Spring Boot app that records a success, a failure, a decision, an approval, then shows an edited and a truncated copy failing verification |
 
 ## Status
 
-`0.1.0-SNAPSHOT`, 12 tests, built and run on JDK 21.
+`0.1.0-SNAPSHOT`, 20 tests, built and run on JDK 21.
 
 What is covered: hash chaining (edit / reorder / middle deletion), payload hashing,
-sequence resume after reopen, unsigned and HMAC-signed head anchors, CLI exit codes.
+sequence resume after reopen, unsigned and HMAC-signed head anchors, Merkle root and
+inclusion proofs for 1..9 entries, CLI exit codes.
 
-- **Not yet:** OpenTelemetry export, MCP-aware recording, storage backends other than
-  local files, key rotation.
+- **Not yet:** consistency proofs between two roots, OpenTelemetry export, MCP-aware
+  recording, storage backends other than local files, key rotation.
 - **Honest limit:** an attacker who can rewrite both the ledger *and* the head file wins;
   the HMAC key must live somewhere the ledger writer cannot be tricked into using it
   (env var, KMS, separate process).
