@@ -99,6 +99,45 @@ cannot rewrite works: a Git commit, an S3 object with Object Lock, a ticket in a
 system, or a chain's `OP_RETURN` as a public timestamp. The ledger deliberately does not
 ship a chain integration — anchoring is a policy decision, not a library one.
 
+## How it fits in production
+
+**What the ledger stores:** metadata and hashes — `seq`, `runId`, `kind`, `name`,
+`status`, `durationMs`, `argsHash`, `resultHash`, `meta`, `prevHash`, `hash`. It never
+stores prompts, arguments or tool output. That is the point: the ledger can leave the
+building, the payloads cannot.
+
+**Write path (today):** `@AgentAction` → `LedgerWriter.append` → one JSON line appended
+to a local file → head anchor rewritten atomically. Single writer, O(1) per entry, no
+database, no queue.
+
+**Verification has three levels:**
+
+| level | check | cost |
+| --- | --- | --- |
+| entry | recompute the entry hash | O(1) |
+| history | hash chain + head anchor | O(n) once |
+| inclusion | Merkle root + proof | O(log n) per entry |
+
+**Query and analysis.** Because payloads are hashed, analytics run over *metadata*:
+tool failure rate, latency distribution per tool, actions per run, approval lag. Today
+that means scanning the JSONL with DuckDB or converting it to Parquet; at volume you
+ship the metadata to ClickHouse/BigQuery and keep the ledger as the integrity layer.
+The ledger is not a log warehouse — it is the part of the record you can prove.
+
+**What you would add to run it for real, and only then:**
+
+| need | add | why not now |
+| --- | --- | --- |
+| many services writing | rotate segments, one writer per segment, anchor each segment root | a single service does not have the problem |
+| durable anchoring | S3/OSS object with Object Lock, Git commit, RFC 3161 timestamp | a file is enough for one host |
+| key custody | KMS/Vault for the HMAC key | env var is enough for a demo |
+| dashboards | OpenTelemetry spans → Collector → Tempo/Grafana | spans duplicate the ledger one-to-one |
+| content search | keep payloads in your normal logs, with access control | hashing is deliberate |
+
+**What it does not need:** consensus, a blockchain, Kafka, or a search cluster. Reach for
+those only when a specific requirement (multi-party trust, >10k writes/s, full-text over
+payloads) actually appears.
+
 ## Modules
 
 | module | what it is |
